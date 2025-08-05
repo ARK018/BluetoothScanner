@@ -6,9 +6,7 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "scheme": "exp+bluetooth-scanner",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
@@ -28,12 +26,7 @@
       ],
       "package": "com.akshay22.bluetoothscanner"
     },
-    "plugins": [
-      [
-        "expo-dev-client"
-      ],
-      "expo-router"
-    ],
+    "plugins": [["expo-dev-client"]],
     "extra": {
       "eas": {
         "projectId": "b917ff9c-20f4-4919-817f-dfd52e0f695b"
