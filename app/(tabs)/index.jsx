@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Clipboard,
   FlatList,
   NativeEventEmitter,
   NativeModules,
@@ -17,7 +18,7 @@ import {
 import BleManager from "react-native-ble-manager";
 
 // Constants
-const SCAN_DURATION = 5; // seconds
+const SCAN_DURATION = 10; // seconds
 const SCAN_INTERVAL = 1000; // 1 second
 
 const BleManagerModule = NativeModules.BleManager;
@@ -31,14 +32,44 @@ const DeviceItem = React.memo(({ device, onPress }) => {
     ? "Connectable"
     : "Non-connectable";
 
+  // Extract advertisement data
+  const serviceUUIDs = advertising.serviceUUIDs || [];
+  const manufacturerData = advertising.manufacturerData;
+  const txPowerLevel = advertising.txPowerLevel;
+  const localName = advertising.localName;
+
   return (
     <TouchableOpacity style={styles.deviceItem} onPress={() => onPress(device)}>
       <View style={styles.deviceInfo}>
         <Text style={styles.deviceName}>{displayName}</Text>
         <Text style={styles.deviceId}>{id}</Text>
+
+        {/* Show local name if different from device name */}
+        {localName && localName !== name && (
+          <Text style={styles.advertisementText}>Local Name: {localName}</Text>
+        )}
+
+        {/* Show service UUIDs */}
+        {serviceUUIDs.length > 0 && (
+          <Text style={styles.advertisementText}>
+            Services: {serviceUUIDs.slice(0, 2).join(", ")}
+            {serviceUUIDs.length > 2 && "..."}
+          </Text>
+        )}
+
+        {/* Show manufacturer data */}
+        {manufacturerData && (
+          <Text style={styles.advertisementText}>
+            Mfg Data: {JSON.stringify(manufacturerData).substring(0, 30)}...
+          </Text>
+        )}
       </View>
+
       <View style={styles.deviceMeta}>
         <Text style={styles.deviceRssi}>{rssi} dBm</Text>
+        {txPowerLevel && (
+          <Text style={styles.txPower}>TX: {txPowerLevel} dBm</Text>
+        )}
         <Text style={styles.deviceConnectable}>{isConnectable}</Text>
       </View>
     </TouchableOpacity>
@@ -97,9 +128,83 @@ const App = () => {
     });
   }, []);
 
-  // Start scanning for BLE devices
+  // Start scanning for all devices
+  // const startScan = useCallback(async () => {
+  //   console.log("🚀 Starting scan process...");
+  //   setError(null);
+
+  //   try {
+  //     // Check and request permissions first
+  //     const hasPermissions = await checkPermissions();
+  //     if (!hasPermissions) {
+  //       console.log("❌ Permissions not granted");
+  //       Alert.alert(
+  //         "Permissions Required",
+  //         "Bluetooth and location permissions are required to scan for devices"
+  //       );
+  //       return;
+  //     }
+
+  //     // Verify Bluetooth is enabled, and prompt if not
+  //     try {
+  //       await BleManager.enableBluetooth();
+  //     } catch (error) {
+  //       Alert.alert(
+  //         "Bluetooth Required",
+  //         "Please enable Bluetooth to scan for devices."
+  //       );
+  //       return;
+  //     }
+
+  //     console.log("✅ Starting BLE scan...");
+  //     setDevices([]);
+  //     setIsScanning(true);
+
+  //     // Clear any existing interval
+  //     if (scanIntervalRef.current) {
+  //       clearInterval(scanIntervalRef.current);
+  //       scanIntervalRef.current = null;
+  //     }
+
+  //     // Start scanning
+  //     await BleManager.scan([], SCAN_DURATION, true);
+  //     console.log("🔍 BLE scan started successfully");
+
+  //     // Set up interval to check for discovered devices
+  //     scanIntervalRef.current = setInterval(async () => {
+  //       try {
+  //         const peripherals = await BleManager.getDiscoveredPeripherals();
+  //         console.log(`🔄 Found ${peripherals.length} devices`);
+  //         if (peripherals.length > 0) {
+  //           setDevices(peripherals);
+  //         }
+  //       } catch (err) {
+  //         console.error("Error getting peripherals:", err);
+  //       }
+  //     }, SCAN_INTERVAL);
+
+  //     // Stop scanning after duration
+  //     setTimeout(() => {
+  //       console.log("⏱️ Scan duration completed, stopping...");
+  //       stopScan();
+  //     }, SCAN_DURATION * 1000);
+  //   } catch (err) {
+  //     console.error("❌ Scan error:", err);
+  //     setError("Failed to start scanning: " + (err.message || "Unknown error"));
+  //     setIsScanning(false);
+
+  //     // Ensure we clean up on error
+  //     if (scanIntervalRef.current) {
+  //       clearInterval(scanIntervalRef.current);
+  //       scanIntervalRef.current = null;
+  //     }
+  //   }
+  // }, [checkPermissions]);
+
+  // Scan for specific device
+  // Start scanning for specific BLE device
   const startScan = useCallback(async () => {
-    console.log("🚀 Starting scan process...");
+    console.log("🚀 Starting scan for specific device...");
     setError(null);
 
     try {
@@ -125,7 +230,7 @@ const App = () => {
         return;
       }
 
-      console.log("✅ Starting BLE scan...");
+      console.log("✅ Starting BLE scan for ZT02 device...");
       setDevices([]);
       setIsScanning(true);
 
@@ -135,7 +240,7 @@ const App = () => {
         scanIntervalRef.current = null;
       }
 
-      // Start scanning
+      // Start scanning (BLE Manager scans all devices, we filter in handleDiscoverPeripheral)
       await BleManager.scan([], SCAN_DURATION, true);
       console.log("🔍 BLE scan started successfully");
 
@@ -143,9 +248,23 @@ const App = () => {
       scanIntervalRef.current = setInterval(async () => {
         try {
           const peripherals = await BleManager.getDiscoveredPeripherals();
-          console.log(`🔄 Found ${peripherals.length} devices`);
-          if (peripherals.length > 0) {
-            setDevices(peripherals);
+          console.log(`🔄 Checking ${peripherals.length} discovered devices`);
+
+          // Filter for our specific device
+          const targetDevice = peripherals.find(
+            (device) =>
+              device.name === "ZT02" || device.id === "E5:83:27:D1:D2:94"
+          );
+
+          if (targetDevice) {
+            console.log(
+              "🎯 Found target device:",
+              targetDevice.name || targetDevice.id
+            );
+            setDevices([targetDevice]);
+
+            // Optional: Stop scanning once we find the device
+            // stopScan();
           }
         } catch (err) {
           console.error("Error getting peripherals:", err);
@@ -195,12 +314,74 @@ const App = () => {
 
   // Handle device press
   const handleDevicePress = useCallback((device) => {
+    const { name, id, rssi, advertising = {} } = device;
+
+    // Format advertisement data for display
+    let advertisementInfo = `Name: ${
+      name || "N/A"
+    }\nID: ${id}\nRSSI: ${rssi} dBm\n\n`;
+
+    advertisementInfo += "=== ADVERTISEMENT DATA ===\n";
+    advertisementInfo += `Connectable: ${
+      advertising.isConnectable ? "Yes" : "No"
+    }\n`;
+
+    if (advertising.localName) {
+      advertisementInfo += `Local Name: ${advertising.localName}\n`;
+    }
+
+    if (advertising.txPowerLevel) {
+      advertisementInfo += `TX Power: ${advertising.txPowerLevel} dBm\n`;
+    }
+
+    if (advertising.serviceUUIDs && advertising.serviceUUIDs.length > 0) {
+      advertisementInfo += `Service UUIDs:\n${advertising.serviceUUIDs
+        .map((uuid) => `  • ${uuid}`)
+        .join("\n")}\n`;
+    }
+
+    if (advertising.manufacturerData) {
+      advertisementInfo += `Manufacturer Data:\n${JSON.stringify(
+        advertising.manufacturerData,
+        null,
+        2
+      )}\n`;
+    }
+
+    if (advertising.serviceData) {
+      advertisementInfo += `Service Data:\n${JSON.stringify(
+        advertising.serviceData,
+        null,
+        2
+      )}\n`;
+    }
+
+    // Show raw advertising object for debugging
+    advertisementInfo += `\n=== RAW DATA ===\n${JSON.stringify(
+      advertising,
+      null,
+      2
+    )}`;
+
     Alert.alert(
-      "Device Selected",
-      `Name: ${device.name || "N/A"}\nID: ${device.id}\nRSSI: ${
-        device.rssi
-      } dBm`,
-      [{ text: "OK" }]
+      "Device Advertisement Data",
+      advertisementInfo,
+      [
+        {
+          text: "Copy to Clipboard",
+          onPress: async () => {
+            try {
+              await Clipboard.setString(advertisementInfo);
+              Alert.alert("Copied!", "Advertisement data copied to clipboard");
+            } catch (error) {
+              console.error("Failed to copy to clipboard:", error);
+              Alert.alert("Error", "Failed to copy to clipboard");
+            }
+          },
+        },
+        { text: "OK" },
+      ],
+      { cancelable: true }
     );
   }, []);
 
@@ -391,6 +572,12 @@ const styles = StyleSheet.create({
     color: "#666",
     fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
   },
+  advertisementText: {
+    fontSize: 11,
+    color: "#888",
+    marginTop: 2,
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
+  },
   deviceMeta: {
     alignItems: "flex-end",
   },
@@ -399,6 +586,12 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     color: "#2196f3",
     marginBottom: 4,
+  },
+  txPower: {
+    fontSize: 12,
+    color: "#ff9800",
+    fontWeight: "500",
+    marginBottom: 2,
   },
   deviceConnectable: {
     fontSize: 12,
